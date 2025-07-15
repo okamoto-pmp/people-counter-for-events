@@ -14,7 +14,7 @@ idna==3.4
 imutils==0.5.4
 jmespath==1.0.1
 numpy==1.24.2
-opencv-python
+opencv-python==4.5.5.64
 platformdirs==2.5.2
 pycparser==2.21
 pyOpenSSL==23.1.1

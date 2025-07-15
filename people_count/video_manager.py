@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-from typing import Tuple
+from typing import Tuple, Union
 import time
 
 import cv2
@@ -9,7 +9,7 @@ import numpy as np
 
 
 class VideoStreamManager:
-    def __init__(self, input: str|int) -> None:
+    def __init__(self, input: Union[str, int]) -> None:
         self.videostream = cv2.VideoCapture(input)
         self.videolength = int(self.videostream.get(cv2.CAP_PROP_FRAME_COUNT))
         self.videolength = -2 if self.videolength == 0 or self.videolength == -1 else self.videolength

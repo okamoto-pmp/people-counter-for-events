@@ -1,0 +1,61 @@
+services:
+  frontend:
+    build: ./people_count_front
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+    environment:
+      - NODE_ENV=development
+      - VUE_APP_API_ENDPOINT=http://localhost:3000
+    volumes:
+      - ./people_count_front:/app
+      - /app/node_modules
+
+  backend:
+    build: ./people_count_back
+    ports:
+      - "3000:3000"
+    environment:
+      - GRAPHQL_URL=http://localhost:3000/graphql
+      - API_KEY=development-key
+      - AWS_REGION=ap-northeast-1
+    volumes:
+      - ./people_count_back:/app
+      - /app/node_modules
+
+  people_count:
+    build: ./people_count
+    depends_on:
+      - localstack
+    environment:
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=ap-northeast-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      # WSLg設定
+      - DISPLAY=$DISPLAY
+      - WAYLAND_DISPLAY=$WAYLAND_DISPLAY
+      - XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR
+      - PULSE_SERVER=$PULSE_SERVER
+    volumes:
+      - ./people_count:/app
+      # WSLg設定
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack
+    ports:
+      - "4566:4566"
+      - "4571:4571"
+    environment:
+      - DEBUG=1
+      - SERVICES=appsync,dynamodb,kinesis,lambda,s3
+      - DATA_DIR=/tmp/localstack/data
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - HOST_TMP_FOLDER=/tmp/localstack
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./localstack/data:/tmp/localstack/data
