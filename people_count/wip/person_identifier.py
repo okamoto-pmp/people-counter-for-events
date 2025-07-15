@@ -12,7 +12,71 @@ class PersonIdentifier:
         """
         self.similarity_threshold = similarity_threshold
         self.person_database = {}  # {person_id: [feature_vectors]}
+        self.person_bbox_history = {}  # {person_id: [bbox_history]}
         self.next_person_id = 1
+        self.logger = None  # ログ機能（後で設定）
+        
+    def set_logger(self, logger):
+        """ログ機能を設定"""
+        self.logger = logger
+        
+    def _filter_bbox_size(self, bbox: Tuple[int, int, int, int], 
+                         person_id: int = None) -> Tuple[int, int, int, int]:
+        """
+        バウンディングボックスのサイズをフィルタリングして安定化
+        
+        Args:
+            bbox: バウンディングボックス (x1, y1, x2, y2)
+            person_id: 既存の人物ID（新規の場合はNone）
+            
+        Returns:
+            フィルタリング後のバウンディングボックス
+        """
+        x1, y1, x2, y2 = bbox
+        current_size = (x2 - x1) * (y2 - y1)
+        
+        # 既存の人物の場合、履歴を使ってサイズを安定化
+        if person_id is not None and person_id in self.person_bbox_history:
+            history = self.person_bbox_history[person_id]
+            if len(history) > 0:
+                # 過去のサイズの平均を計算
+                past_sizes = [(h[2] - h[0]) * (h[3] - h[1]) for h in history]
+                avg_size = np.mean(past_sizes)
+                
+                # 現在のサイズが過去の平均から大きく外れる場合は調整
+                size_ratio = current_size / avg_size if avg_size > 0 else 1.0
+                
+                if self.logger:
+                    self.logger.log_bbox_size_change(0, person_id, int(avg_size), current_size, size_ratio)
+                
+                # 2倍以上または半分以下の変化の場合は調整
+                if size_ratio > 2.0 or size_ratio < 0.5:
+                    # 過去の平均サイズに近づける
+                    target_size = int(avg_size * 0.8 + current_size * 0.2)  # 重み付き平均
+                    scale_factor = (target_size / current_size) ** 0.5
+                    
+                    center_x = (x1 + x2) // 2
+                    center_y = (y1 + y2) // 2
+                    width = int((x2 - x1) * scale_factor)
+                    height = int((y2 - y1) * scale_factor)
+                    
+                    x1 = center_x - width // 2
+                    y1 = center_y - height // 2
+                    x2 = center_x + width // 2
+                    y2 = center_y + height // 2
+        
+        return (x1, y1, x2, y2)
+    
+    def _update_bbox_history(self, person_id: int, bbox: Tuple[int, int, int, int]):
+        """バウンディングボックスの履歴を更新"""
+        if person_id not in self.person_bbox_history:
+            self.person_bbox_history[person_id] = []
+        
+        self.person_bbox_history[person_id].append(bbox)
+        
+        # 履歴は最大10個まで保持
+        if len(self.person_bbox_history[person_id]) > 10:
+            self.person_bbox_history[person_id].pop(0)
         
     def extract_features(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> np.ndarray:
         """
@@ -83,15 +147,18 @@ class PersonIdentifier:
         similarity = dot_product / norm_product
         return max(0.0, similarity)
     
-    def identify_person(self, features: np.ndarray) -> int:
+    def identify_person(self, features: np.ndarray, bbox: Tuple[int, int, int, int], 
+                       frame_num: int = 0) -> Tuple[int, float]:
         """
         特徴量から人物を識別
         
         Args:
             features: 人物の特徴量
+            bbox: バウンディングボックス
+            frame_num: フレーム番号
             
         Returns:
-            人物ID（新しい人物の場合は新しいIDを発行）
+            (人物ID, 類似度)
         """
         best_match_id = None
         best_similarity = 0.0
@@ -107,37 +174,64 @@ class PersonIdentifier:
         
         # 類似度が閾値を超えた場合は既存の人物として識別
         if best_similarity > self.similarity_threshold:
+            # バウンディングボックスをフィルタリング
+            filtered_bbox = self._filter_bbox_size(bbox, best_match_id)
+            
             # 新しい特徴量を追加（最大5個まで保持）
             if len(self.person_database[best_match_id]) < 5:
                 self.person_database[best_match_id].append(features)
-            return best_match_id
+            
+            # バウンディングボックス履歴を更新
+            self._update_bbox_history(best_match_id, filtered_bbox)
+            
+            # ログ出力
+            if self.logger:
+                self.logger.log_person_match(frame_num, best_match_id, best_similarity, filtered_bbox)
+            
+            return best_match_id, best_similarity
         
         # 新しい人物として登録
         new_person_id = self.next_person_id
         self.next_person_id += 1
         self.person_database[new_person_id] = [features]
         
-        return new_person_id
+        # バウンディングボックス履歴を初期化
+        self._update_bbox_history(new_person_id, bbox)
+        
+        # ログ出力
+        if self.logger:
+            self.logger.log_new_person(frame_num, new_person_id, bbox)
+        
+        return new_person_id, 0.0
     
-    def identify_persons(self, frame: np.ndarray, bboxes: List[Tuple[int, int, int, int]]) -> List[int]:
+    def identify_persons(self, frame: np.ndarray, bboxes: List[Tuple[int, int, int, int]], 
+                        frame_num: int = 0) -> Tuple[List[int], List[float]]:
         """
         複数の人物を識別
         
         Args:
             frame: 入力フレーム
             bboxes: バウンディングボックスのリスト
+            frame_num: フレーム番号
             
         Returns:
-            各人物のIDリスト
+            (各人物のIDリスト, 類似度リスト)
         """
         person_ids = []
+        similarities = []
         
         for bbox in bboxes:
             features = self.extract_features(frame, bbox)
-            person_id = self.identify_person(features)
+            person_id, similarity = self.identify_person(features, bbox, frame_num)
             person_ids.append(person_id)
+            similarities.append(similarity)
         
-        return person_ids
+        # ログ出力
+        if self.logger:
+            self.logger.log_person_identification(frame_num, person_ids, similarities)
+            self.logger.log_database_status(frame_num, self.person_database)
+        
+        return person_ids, similarities
     
     def get_unique_count(self) -> int:
         """
@@ -160,3 +254,7 @@ class PersonIdentifier:
             'total_features': sum(len(features) for features in self.person_database.values()),
             'similarity_threshold': self.similarity_threshold
         }
+    
+    def get_person_database(self) -> Dict:
+        """人物データベースを取得（デバッグ用）"""
+        return self.person_database.copy()

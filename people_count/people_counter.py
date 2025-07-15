@@ -5,6 +5,8 @@ import argparse
 import time
 import datetime
 from typing import Tuple
+import csv
+import os
 
 import dlib
 import numpy as np
@@ -23,10 +25,21 @@ import lib.utils as utils
 def main(args):
     FRAME_WIDTH = 1000
 
+    # スクリーンショット用のディレクトリを作成
+    screenshot_dir = "screenshots"
+    os.makedirs(screenshot_dir, exist_ok=True)
+    
+    # CSV出力用のリスト
+    csv_data = []
+    csv_filename = "people_events.csv"
+    
+    # CSVヘッダーを書き込み
+    with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['ID', 'IN/OUT', 'image_path', 'timestamp'])
+
     # 機械学習モデルのラベルリストをロード
     print("[INFO] loading labels...")
-    with open(args["label"], "r") as f:
-        CLASSES = f.read().split("\n")
 
     # 機械学習モデルのロード
     print("[INFO] loading model...")
@@ -61,22 +74,6 @@ def main(args):
     if area:
         url = args.get("url")
         assert url != "", "url is not set"
-
-    # StreamClientの初期化
-    print(type(args["stream"]), args["stream"])
-    if args["stream"] != "":
-        stream_client = PeopleCountStreamManager(
-            args.get("stream"),
-            video_stream_id,
-            datetime.timezone(datetime.timedelta(hours=args.get("timezone"))),
-        )
-    else:
-        stream_client = PeopleCountStreamManager(
-            "stream",
-            video_stream_id,
-            datetime.timezone(datetime.timedelta(hours=args.get("timezone"))),
-            alone=True
-        )
 
     video_writer = None
 
@@ -202,7 +199,6 @@ def main(args):
             for (objectID, centroid) in deregisters.items():
                 if utils.is_in_area(area, centroid):
                     totalLeave += 1
-                    stream_client.leave()
 
         # 追跡対象のオブジェクトを取得
         for (objectID, centroid) in objects.items():
@@ -233,19 +229,48 @@ def main(args):
                     if utils.is_in_area(area, centroid):
                         nowEnter += 1
 
-                    # 過去5フレームのx,y座標の平均
-                    xmean, ymean = np.mean(xs[:-5]), np.mean(ys[:-5])
+                    # 過去5フレームのx,y座標の平均（十分なデータがある場合のみ）
+                    if len(xs) > 5:
+                        xmean, ymean = np.mean(xs[:-5]), np.mean(ys[:-5])
+                    else:
+                        xmean, ymean = centroid[0], centroid[1]
                     # 新たに領域内に入った場合、enterイベントを送信する
                     if not trackable_object.enter_counted and utils.is_in_area(area, centroid):
                         totalEnter += 1
                         trackable_object.enter_counted = True
-                        stream_client.enter()
+                        
+                        # スクリーンショット撮影とCSV記録
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        screenshot_path = os.path.join(screenshot_dir, f"ID_{objectID}_IN_{timestamp}.png")
+                        # cv2.imwrite(screenshot_path, frame)
+                        
+                        # CSVに記録
+                        csv_row = [objectID, "IN", screenshot_path, timestamp]
+                        csv_data.append(csv_row)
+                        # with open(csv_filename, 'a', newline='', encoding='utf-8') as f:
+                        #     writer = csv.writer(f)
+                        #     writer.writerow(csv_row)
+                        
+                        print(f"[INFO] Person {objectID} entered - screenshot saved: {screenshot_path}")
 
                     # 領域から出た場合、leaveイベントを送信する
                     if not trackable_object.leave_counted and not utils.is_in_area(area, centroid) and utils.is_in_area(area, [xmean, ymean]):
                         totalLeave += 1
                         trackable_object.leave_counted = True
-                        stream_client.leave()
+                        
+                        # スクリーンショット撮影とCSV記録
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        screenshot_path = os.path.join(screenshot_dir, f"ID_{objectID}_OUT_{timestamp}.png")
+                        # cv2.imwrite(screenshot_path, frame)
+                        
+                        # CSVに記録
+                        csv_row = [objectID, "OUT", screenshot_path, timestamp]
+                        csv_data.append(csv_row)
+                        # with open(csv_filename, 'a', newline='', encoding='utf-8') as f:
+                        #     writer = csv.writer(f)
+                        #     writer.writerow(csv_row)
+                        
+                        print(f"[INFO] Person {objectID} left - screenshot saved: {screenshot_path}")
                 direction = centroid[1] - np.mean(ys)
 
                 trackable_object.centroids.append(centroid)
@@ -255,13 +280,39 @@ def main(args):
                     if direction < 0 and centroid[1] < line_y and ys[-1] >= line_y:
                         totalUp += 1
                         trackable_object.counted = True
-                        stream_client.leave()
+                        
+                        # スクリーンショット撮影とCSV記録
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        screenshot_path = os.path.join(screenshot_dir, f"ID_{objectID}_OUT_{timestamp}.png")
+                        # cv2.imwrite(screenshot_path, frame)
+                        
+                        # CSVに記録
+                        csv_row = [objectID, "OUT", screenshot_path, timestamp]
+                        csv_data.append(csv_row)
+                        # with open(csv_filename, 'a', newline='', encoding='utf-8') as f:
+                        #     writer = csv.writer(f)
+                        #     writer.writerow(csv_row)
+                        
+                        print(f"[INFO] Person {objectID} crossed line UP (OUT) - screenshot saved: {screenshot_path}")
 
                     # 検知ラインを下向きにクロスした場合、入場としてカウント
                     elif direction > 0 and centroid[1] > line_y and ys[-1] <= line_y:
                         totalDown += 1
                         trackable_object.counted = True
-                        stream_client.enter()
+                        
+                        # スクリーンショット撮影とCSV記録
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        screenshot_path = os.path.join(screenshot_dir, f"ID_{objectID}_IN_{timestamp}.png")
+                        # cv2.imwrite(screenshot_path, frame)
+                        
+                        # CSVに記録
+                        csv_row = [objectID, "IN", screenshot_path, timestamp]
+                        csv_data.append(csv_row)
+                        # with open(csv_filename, 'a', newline='', encoding='utf-8') as f:
+                        #     writer = csv.writer(f)
+                        #     writer.writerow(csv_row)
+                        
+                        print(f"[INFO] Person {objectID} crossed line DOWN (IN) - screenshot saved: {screenshot_path}")
 
             trackableObjects[objectID] = trackable_object
 
@@ -314,6 +365,12 @@ def main(args):
     if args.get("gui"):
         cv2.destroyAllWindows()
     
+    # CSVファイルに記録
+    with open(csv_filename, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        for row in csv_data:
+            writer.writerow(row)
+    
     # ReID特徴量抽出が有効な場合、ユニークカウントを実行
     if extract_features:
         print("\n=== ユニークカウント処理開始 ===")
@@ -346,8 +403,6 @@ if __name__ == "__main__":
                            help="path to Caffe 'deploy' prototxt file")
     argparser.add_argument("-m", "--model", required=True,
                            help="path to Caffe pre-trained model")
-    argparser.add_argument("-t", "--label", required=True, type=str,
-                           help="path to target object label file")
     argparser.add_argument("-i", "--input", type=str,
                            help="path to optional input video file")
     argparser.add_argument("-o", "--output", type=str,

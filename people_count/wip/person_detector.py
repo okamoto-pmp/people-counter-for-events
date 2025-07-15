@@ -57,7 +57,22 @@ class PersonDetector:
                 x2 = min(width, x2)
                 y2 = min(height, y2)
                 
-                if x2 > x1 and y2 > y1:  # 有効なボックスのみ
+                # バウンディングボックスのサイズフィルタリング
+                box_width = x2 - x1
+                box_height = y2 - y1
+                box_area = box_width * box_height
+                
+                # 最小サイズのフィルタリング（小さすぎるものは除外）
+                if box_width < 30 or box_height < 50:
+                    continue
+                
+                # アスペクト比のフィルタリング（人物らしくないものは除外）
+                aspect_ratio = box_height / box_width
+                if aspect_ratio < 1.2 or aspect_ratio > 5.0:
+                    continue
+                
+                # 有効なボックスのみ
+                if x2 > x1 and y2 > y1:
                     person_boxes.append((x1, y1, x2, y2))
         
         return person_boxes
