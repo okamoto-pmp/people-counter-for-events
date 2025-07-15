@@ -10,3 +10,7 @@ class TrackableObject:
 		self.counted = False
 		self.enter_counted = False
 		self.leave_counted = False
+		# ReID用の特徴量を保存
+		self.feature_vectors = []
+		self.unique_person_id = None  # 後処理で付与されるユニークID
+		self.crop_images = []  # 人物の切り抜き画像を保存（デバッグ用）

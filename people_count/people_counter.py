@@ -15,6 +15,8 @@ from people_count_stream_manager import PeopleCountStreamManager
 from video_manager import VideoStreamManager
 from lib.tracker import Tracker
 from lib.trackableObject import TrackableObject
+from lib.reid_extractor import ReIDFeatureExtractor
+from lib.unique_counter import UniquePersonCounter
 import lib.utils as utils
 
 
@@ -87,6 +89,10 @@ def main(args):
         maxDisappeared=args["max_disappeared"], maxDistance=args["max_distance"])
     trackers = []
     trackableObjects = {}
+    
+    # ReID特徴量抽出器の初期化
+    reid_extractor = ReIDFeatureExtractor()
+    extract_features = args.get("extract_features", False)  # 特徴量抽出を有効にするフラグ
 
     # カウンタの初期化
     totalFrames = 0
@@ -204,6 +210,17 @@ def main(args):
 
             if trackable_object is None:
                 trackable_object = TrackableObject(objectID, centroid)
+                
+                # ReID特徴量抽出が有効な場合、新しいオブジェクトの特徴量を抽出
+                if extract_features and len(rects) > 0:
+                    # 対応するrectsを見つけて特徴量を抽出
+                    for rect in rects:
+                        rect_center = ((rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2)
+                        if abs(rect_center[0] - centroid[0]) < 10 and abs(rect_center[1] - centroid[1]) < 10:
+                            features = reid_extractor.extract_features(frame, rect)
+                            if features is not None:
+                                trackable_object.feature_vectors.append(features)
+                                break
 
             # 移動方向を計算
             else:
@@ -296,6 +313,30 @@ def main(args):
 
     if args.get("gui"):
         cv2.destroyAllWindows()
+    
+    # ReID特徴量抽出が有効な場合、ユニークカウントを実行
+    if extract_features:
+        print("\n=== ユニークカウント処理開始 ===")
+        
+        # ユニークカウンター初期化
+        unique_counter = UniquePersonCounter(
+            similarity_threshold=args.get("similarity_threshold", 0.7)
+        )
+        
+        # trackableObjectsのリストを作成
+        trackable_objects_list = list(trackableObjects.values())
+        
+        # ユニークIDを付与
+        person_groups = unique_counter.assign_unique_ids(trackable_objects_list)
+        
+        # 結果の表示
+        unique_counter.print_summary(person_groups)
+        
+        # 結果の保存
+        if args.get("unique_output"):
+            unique_counter.save_results(person_groups, args["unique_output"])
+        
+        print("=== ユニークカウント処理完了 ===\n")
 
 
 if __name__ == "__main__":
@@ -331,6 +372,12 @@ if __name__ == "__main__":
                            help="tracking max_disappeard")
     argparser.add_argument("--max_distance", default=50, type=int,
                            help="tracking max distance")
+    argparser.add_argument("--extract_features", action="store_true",
+                           help="enable ReID feature extraction for unique counting")
+    argparser.add_argument("--similarity_threshold", default=0.7, type=float,
+                           help="similarity threshold for unique person identification")
+    argparser.add_argument("--unique_output", type=str,
+                           help="path to save unique counting results (JSON format)")
 
     args = vars(argparser.parse_args())
     main(args)
