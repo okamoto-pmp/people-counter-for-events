@@ -23,12 +23,19 @@ ReIDと入退場管理を統合した高精度人物カウンターシステム
 - オブジェクト追跡機能
 - 入退場イベントの記録
 
-### 4. 可視化機能 (`visualizer.py`)
+### 4. 人口統計分析 (`demographic_analyzer.py`) ⭐ **NEW**
+- 性別識別（男性・女性・不明）
+- 年齢グループ分類（子供・10代・若年成人・中年・高齢者）
+- 顔検出による高精度分析
+- 身体全体からのフォールバック分析
+
+### 5. 可視化機能 (`visualizer.py`)
 - バウンディングボックス描画
+- 人口統計情報の表示（性別・年齢）
 - 統計情報表示
 - エリア・ライン表示
 
-### 5. ログ機能 (`logger.py`)
+### 6. ログ機能 (`logger.py`)
 - 詳細なログ記録
 - 人物データベースの管理
 - 統計情報の出力
@@ -96,7 +103,20 @@ docker compose run people_count python wip/enhanced_app.py -m models/ssd_mobilen
 ```
 Frame 30: Detected=1, Unique=1, Tracked=1, Enter=1, Exit=0, Current=1
   Average similarity: 0.808
+
+=== Demographics Summary ===
+Total analyzed persons: 3
+Face detection rate: 67%
+Gender distribution:
+  Male: 2, Female: 1, Unknown: 0
+Age distribution:
+  Child: 0, Teen: 1, Young Adult: 1, Middle Aged: 1, Senior: 0, Unknown: 0
 ```
+
+### 画面表示
+バウンディングボックスに人口統計情報が表示されます：
+- `ID: 1 (M)/Y` - ID1、男性、若年成人
+- `ID: 2 (F)/T` - ID2、女性、10代
 
 ### JSONファイル出力
 ```json
@@ -112,6 +132,21 @@ Frame 30: Detected=1, Unique=1, Tracked=1, Enter=1, Exit=0, Current=1
       "feature_count": 5,
       "total_appearances": 277
     }
+  },
+  "demographics": {
+    "1": {
+      "gender": "male",
+      "gender_confidence": 0.75,
+      "age_group": "young_adult",
+      "age_confidence": 0.68,
+      "face_detected": true
+    }
+  },
+  "demographic_summary": {
+    "total_persons": 3,
+    "gender_distribution": {"male": 2, "female": 1, "unknown": 0},
+    "age_distribution": {"child": 0, "teen": 1, "young_adult": 1, "middle_aged": 1, "senior": 0, "unknown": 0},
+    "face_detection_rate": 0.67
   }
 }
 ```
@@ -142,12 +177,17 @@ python test_enhanced_app.py
 | 詳細ログ | - | - | ✓ |
 | 高精度フィルタリング | - | - | ✓ |
 | JSON出力 | - | - | ✓ |
+| **性別識別** | - | - | ✓ |
+| **年齢推定** | - | - | ✓ |
+| **顔検出** | - | - | ✓ |
+| **人口統計分析** | - | - | ✓ |
 
 ## 注意点
 
 1. **エリアとラインの同時指定**: 両方を同時に指定することはできません
 2. **モデルファイル**: 事前にモデルファイル（`.pb`）とprototxtファイル（`.pbtxt`）を用意する必要があります
-3. **パフォーマンス**: ReIDと追跡の両方を行うため、処理負荷は高くなります
+3. **人口統計分析**: 高精度には顔検出用のモデルが必要です（なくても基本的な分析は可能）
+4. **パフォーマンス**: ReID、追跡、人口統計分析を行うため、処理負荷は高くなります
 
 ## トラブルシューティング
 

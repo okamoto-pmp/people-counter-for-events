@@ -35,7 +35,7 @@ class EnhancedPeopleCounterApp:
             enable_logging: ログ機能を有効にするかどうか
         """
         self.detector = PersonDetector(model_path, prototxt_path, confidence_threshold)
-        self.identifier = PersonIdentifier(similarity_threshold)
+        self.identifier = PersonIdentifier(similarity_threshold, enable_demographics=True)
         self.tracker = UnifiedTracker(max_disappeared, max_distance)
         self.visualizer = Visualizer()
         
@@ -124,8 +124,9 @@ class EnhancedPeopleCounterApp:
         if line_y:
             output_frame = self.visualizer.draw_detection_line(output_frame, line_y)
         
-        # バウンディングボックスとIDを描画
-        output_frame = self.visualizer.draw_bounding_boxes(output_frame, person_boxes, person_ids)
+        # バウンディングボックスとIDを描画（人口統計情報付き）
+        demographics = self.identifier.get_all_demographics()
+        output_frame = self.visualizer.draw_bounding_boxes(output_frame, person_boxes, person_ids, demographics)
         
         # トラッキング情報を描画
         for object_id, (cx, cy) in tracked_objects.items():
@@ -171,6 +172,19 @@ class EnhancedPeopleCounterApp:
     
     def save_results(self, output_path: str):
         """結果をJSONファイルに保存"""
+        demographic_summary = self.identifier.get_demographic_summary()
+        
+        # 人口統計情報を文字列形式に変換
+        demographics_for_json = {}
+        for pid, demo_info in self.identifier.get_all_demographics().items():
+            demographics_for_json[str(pid)] = {
+                'gender': demo_info.get('gender').value if demo_info.get('gender') else 'unknown',
+                'gender_confidence': demo_info.get('gender_confidence', 0.0),
+                'age_group': demo_info.get('age_group').value if demo_info.get('age_group') else 'unknown',
+                'age_confidence': demo_info.get('age_confidence', 0.0),
+                'face_detected': demo_info.get('face_detected', False)
+            }
+        
         results = {
             'timestamp': datetime.now().isoformat(),
             'total_frames': self.total_frames,
@@ -185,6 +199,8 @@ class EnhancedPeopleCounterApp:
                 }
                 for pid, features in self.identifier.person_database.items()
             },
+            'demographics': demographics_for_json,
+            'demographic_summary': demographic_summary,
             'tracker_statistics': self.tracker.get_statistics()
         }
         
@@ -321,6 +337,24 @@ def main():
         print(f"Exit events: {final_stats['exit_count']}")
         print(f"Current count: {final_stats['current_count']}")
         print(f"Similarity threshold: {final_stats['similarity_threshold']}")
+        
+        # 人口統計情報の表示
+        demographic_summary = app.identifier.get_demographic_summary()
+        if demographic_summary:
+            print(f"\n=== Demographics Summary ===")
+            print(f"Total analyzed persons: {demographic_summary['total_persons']}")
+            print(f"Face detection rate: {demographic_summary['face_detection_rate']:.2%}")
+            
+            # 性別分布
+            gender_dist = demographic_summary['gender_distribution']
+            print(f"Gender distribution:")
+            print(f"  Male: {gender_dist['male']}, Female: {gender_dist['female']}, Unknown: {gender_dist['unknown']}")
+            
+            # 年齢分布
+            age_dist = demographic_summary['age_distribution']
+            print(f"Age distribution:")
+            print(f"  Child: {age_dist['child']}, Teen: {age_dist['teen']}, Young Adult: {age_dist['young_adult']}")
+            print(f"  Middle Aged: {age_dist['middle_aged']}, Senior: {age_dist['senior']}, Unknown: {age_dist['unknown']}")
         
         # 結果の保存
         if args.output:

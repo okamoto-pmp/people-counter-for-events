@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+from enum import Enum
+from typing import Dict
 from typing import List, Tuple, Optional
 
 class Visualizer:
@@ -15,7 +17,8 @@ class Visualizer:
         }
         
     def draw_bounding_boxes(self, frame: np.ndarray, boxes: List[Tuple[int, int, int, int]], 
-                           unique_ids: Optional[List[int]] = None) -> np.ndarray:
+                           unique_ids: Optional[List[int]] = None,
+                           demographics: Optional[Dict] = None) -> np.ndarray:
         """
         バウンディングボックスを描画
         
@@ -23,6 +26,7 @@ class Visualizer:
             frame: 描画対象のフレーム
             boxes: バウンディングボックスのリスト [(x1, y1, x2, y2), ...]
             unique_ids: 各ボックスに対応するユニークID
+            demographics: 人口統計情報 {person_id: demographic_info}
             
         Returns:
             描画後のフレーム
@@ -39,14 +43,29 @@ class Visualizer:
                 unique_id = unique_ids[i]
                 label = f"ID: {unique_id}"
                 
+                # 人口統計情報がある場合は追加
+                if demographics and unique_id in demographics:
+                    demo_info = demographics[unique_id]
+                    gender = demo_info.get('gender')
+                    age_group = demo_info.get('age_group')
+                    
+                    if gender and gender.value != 'unknown':
+                        label += f" ({gender.value[0].upper()})"
+                    if age_group and age_group.value != 'unknown':
+                        age_short = {
+                            'child': 'C', 'teen': 'T', 'young_adult': 'Y',
+                            'middle_aged': 'M', 'senior': 'S'
+                        }.get(age_group.value, '?')
+                        label += f"/{age_short}"
+                
                 # テキストの背景を描画
-                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
                 cv2.rectangle(output_frame, (x1, y1 - label_size[1] - 10), 
                              (x1 + label_size[0], y1), color, -1)
                 
                 # テキストを描画
                 cv2.putText(output_frame, label, (x1, y1 - 5), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.colors['text'], 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.colors['text'], 2)
             
             # 中心点を描画
             center_x = (x1 + x2) // 2
