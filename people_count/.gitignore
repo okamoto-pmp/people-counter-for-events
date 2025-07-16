@@ -8,3 +8,7 @@ models/*
 videos/*
 !videos/test.mp4
 output/*
+logs/*
+
+.csv
+.avi

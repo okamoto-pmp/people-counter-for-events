@@ -169,29 +169,6 @@ class EnhancedPeopleCounterApp:
             'total_frames': self.total_frames
         }
     
-    def save_results(self, output_path: str):
-        """結果をJSONファイルに保存"""
-        results = {
-            'timestamp': datetime.now().isoformat(),
-            'total_frames': self.total_frames,
-            'unique_persons': self.identifier.get_unique_count(),
-            'entry_events': len(self.tracker.enter_events),
-            'exit_events': len(self.tracker.exit_events),
-            'current_count': self.tracker.get_current_count(),
-            'person_database': {
-                str(pid): {
-                    'feature_count': len(features),
-                    'total_appearances': len(features)
-                }
-                for pid, features in self.identifier.person_database.items()
-            },
-            'tracker_statistics': self.tracker.get_statistics()
-        }
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-        
-        print(f"Results saved to: {output_path}")
 
 def main():
     """メイン関数"""
@@ -207,7 +184,7 @@ def main():
     parser.add_argument('--max-distance', type=int, default=100, help='Maximum distance for tracking')
     parser.add_argument('--no-gui', action='store_true', help='Disable GUI display')
     parser.add_argument('--no-log', action='store_true', help='Disable logging')
-    parser.add_argument('-o', '--output', help='Output JSON file path for results')
+    parser.add_argument('-o', '--output', help='Output video file path')
     
     args = parser.parse_args()
     
@@ -264,6 +241,23 @@ def main():
         print("Error: Cannot open video source")
         return
     
+    # ビデオライターの初期化
+    video_writer = None
+    if args.output:
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        output_path = os.path.join('/app', args.output)
+        fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+        video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height), True)
+        
+        if not video_writer.isOpened():
+            print(f"Error: Cannot create output video file: {output_path}")
+            return
+        
+        print(f"Output video will be saved to: {output_path}")
+    
     print("Press 'q' to quit")
     print(f"Detection confidence threshold: {args.confidence}")
     print(f"Similarity threshold: {args.similarity}")
@@ -282,6 +276,10 @@ def main():
             
             # フレーム処理
             output_frame, stats = app.process_frame(frame, frame_count, area, args.line)
+            
+            # 動画の出力
+            if video_writer is not None:
+                video_writer.write(output_frame)
             
             # 結果の表示
             if not args.no_gui:
@@ -308,6 +306,9 @@ def main():
     finally:
         # クリーンアップ
         cap.release()
+        if video_writer is not None:
+            video_writer.release()
+            print(f"Video saved successfully: {args.output}")
         if not args.no_gui:
             cv2.destroyAllWindows()
         
@@ -321,10 +322,6 @@ def main():
         print(f"Exit events: {final_stats['exit_count']}")
         print(f"Current count: {final_stats['current_count']}")
         print(f"Similarity threshold: {final_stats['similarity_threshold']}")
-        
-        # 結果の保存
-        if args.output:
-            app.save_results(args.output)
         
         # ログ機能の終了処理
         if app.logger:

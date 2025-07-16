@@ -2,6 +2,8 @@ import cv2
 import argparse
 import sys
 import os
+import json
+from datetime import datetime
 
 from person_detector import PersonDetector
 from person_identifier import PersonIdentifier
@@ -93,6 +95,8 @@ def main():
     parser.add_argument('-s', '--similarity', type=float, default=0.7, help='Person identification similarity threshold')
     parser.add_argument('-a', '--area', help='Detection area as x1,y1,x2,y2')
     parser.add_argument('-l', '--line', type=int, help='Detection line Y coordinate')
+    parser.add_argument('-o', '--output', help='Output video file path')
+    parser.add_argument('--json-output', help='Output JSON results file path')
     parser.add_argument('--no-gui', action='store_true', help='Disable GUI display')
     parser.add_argument('--no-log', action='store_true', help='Disable logging')
     
@@ -144,6 +148,23 @@ def main():
         print("Error: Cannot open video source")
         return
     
+    # ビデオライターの初期化
+    # video_writer = None
+    # if args.output:
+    #     fps = int(cap.get(cv2.CAP_PROP_FPS))
+    #     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    #     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+    #     output_path = os.path.join('/app', args.output)
+    #     fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+    #     video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height), True)
+        
+    #     if not video_writer.isOpened():
+    #         print(f"Error: Cannot create output video file: {output_path}")
+    #         return
+        
+    #     print(f"Output video will be saved to: {output_path}")
+    
     print("Press 'q' to quit")
     print(f"Detection confidence threshold: {args.confidence}")
     print(f"Similarity threshold: {args.similarity}")
@@ -164,6 +185,13 @@ def main():
             output_frame, person_boxes, person_ids, similarities = app.process_frame(
                 frame, frame_count, area, args.line)
             
+            # 動画の出力
+            if args["output"] is not None and video_writer is None:
+                fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+                video_writer = cv2.VideoWriter(args["output"], fourcc, 30,
+                                            (W, H), True)
+            
+
             # 結果の表示
             if not args.no_gui:
                 cv2.imshow('People Counter with ReID', output_frame)
@@ -187,6 +215,8 @@ def main():
                             print(f"    Person {i}: ID={pid}, similarity={sim:.3f}")
                         else:
                             print(f"    Person {i}: ID={pid} (new)")
+            if video_writer is not None:
+                video_writer.write(frame)
     
     except KeyboardInterrupt:
         print("\nInterrupted by user")
@@ -194,6 +224,8 @@ def main():
     finally:
         # クリーンアップ
         cap.release()
+        if video_writer is not None:
+            video_writer.release()
         if not args.no_gui:
             cv2.destroyAllWindows()
         
@@ -204,6 +236,22 @@ def main():
         print(f"Unique persons detected: {final_stats['unique_persons']}")
         print(f"Total features stored: {final_stats['total_features']}")
         print(f"Similarity threshold: {final_stats['similarity_threshold']}")
+        
+        # JSON結果の保存
+        if args.json_output:
+            json_output_path = os.path.join('/app', args.json_output)
+            results = {
+                "timestamp": datetime.now().isoformat(),
+                "total_frames": frame_count,
+                "unique_persons": final_stats['unique_persons'],
+                "total_features": final_stats['total_features'],
+                "similarity_threshold": final_stats['similarity_threshold'],
+                "person_database": app.identifier.get_person_database()
+            }
+            
+            with open(json_output_path, 'w', encoding='utf-8') as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+            print(f"JSON results saved to: {json_output_path}")
         
         # ログ機能の終了処理
         if app.logger:
