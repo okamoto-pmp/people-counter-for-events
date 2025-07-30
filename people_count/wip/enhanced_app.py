@@ -23,7 +23,9 @@ class EnhancedPeopleCounterApp:
                  similarity_threshold: float = 0.6,
                  max_disappeared: int = 80,
                  max_distance: int = 100,
-                 enable_logging: bool = True):
+                 enable_logging: bool = True,
+                 save_crossing_images: bool = True,
+                 crossing_images_dir: str = "crossing_images"):
         """
         Args:
             model_path: 検出モデルのパス
@@ -33,10 +35,12 @@ class EnhancedPeopleCounterApp:
             max_disappeared: トラッキングの最大消失フレーム数
             max_distance: トラッキングの最大距離
             enable_logging: ログ機能を有効にするかどうか
+            save_crossing_images: ライン交差時の画像を保存するかどうか
+            crossing_images_dir: 交差画像を保存するディレクトリ
         """
         self.detector = PersonDetector(model_path, prototxt_path, confidence_threshold)
         self.identifier = PersonIdentifier(similarity_threshold)
-        self.tracker = UnifiedTracker(max_disappeared, max_distance)
+        self.tracker = UnifiedTracker(max_disappeared, max_distance, save_crossing_images, crossing_images_dir)
         self.visualizer = Visualizer()
         
         # ログ機能の初期化
@@ -56,7 +60,7 @@ class EnhancedPeopleCounterApp:
         
     def process_frame(self, frame, frame_num: int, 
                      area: Optional[Tuple[int, int, int, int]] = None,
-                     line_y: Optional[int] = None) -> Tuple[np.ndarray, Dict]:
+                     line_x: Optional[int] = None) -> Tuple[np.ndarray, Dict]:
         """
         フレームを処理（検出→識別→トラッキング→描画）
         
@@ -64,7 +68,7 @@ class EnhancedPeopleCounterApp:
             frame: 入力フレーム
             frame_num: フレーム番号
             area: 検出エリア (x1, y1, x2, y2) or None
-            line_y: 検出ライン or None
+            line_x: 検出ライン or None
             
         Returns:
             (処理後のフレーム, 統計情報)
@@ -94,11 +98,11 @@ class EnhancedPeopleCounterApp:
             similarities = []
         
         # 3. トラッキング更新
-        tracked_objects, deregistered_objects = self.tracker.update(person_boxes, area, line_y)
+        tracked_objects, deregistered_objects = self.tracker.update(person_boxes, area, line_x, frame)
         
         # 4. 描画
         output_frame = self._draw_frame(frame, person_boxes, person_ids, similarities, 
-                                      tracked_objects, area, line_y, frame_num)
+                                      tracked_objects, area, line_x, frame_num)
         
         # 5. 統計情報の取得
         stats = self._get_comprehensive_stats(person_boxes, person_ids, similarities)
@@ -113,7 +117,7 @@ class EnhancedPeopleCounterApp:
                    person_ids: List[int], similarities: List[float],
                    tracked_objects: Dict[int, Tuple[int, int]],
                    area: Optional[Tuple[int, int, int, int]],
-                   line_y: Optional[int],
+                   line_x: Optional[int],
                    frame_num: int) -> np.ndarray:
         """フレームに各種情報を描画"""
         output_frame = frame.copy()
@@ -121,8 +125,8 @@ class EnhancedPeopleCounterApp:
         # エリアまたはラインを描画
         if area:
             output_frame = self.visualizer.draw_detection_area(output_frame, area)
-        if line_y:
-            output_frame = self.visualizer.draw_detection_line(output_frame, line_y)
+        if line_x:
+            output_frame = self.visualizer.draw_detection_line(output_frame, line_x)
         
         # バウンディングボックスとIDを描画
         output_frame = self.visualizer.draw_bounding_boxes(output_frame, person_boxes, person_ids)
@@ -179,12 +183,15 @@ def main():
     parser.add_argument('-c', '--confidence', type=float, default=0.4, help='Detection confidence threshold')
     parser.add_argument('-s', '--similarity', type=float, default=0.6, help='Person identification similarity threshold')
     parser.add_argument('-a', '--area', help='Detection area as x1,y1,x2,y2')
-    parser.add_argument('-l', '--line', type=int, help='Detection line Y coordinate')
+    parser.add_argument('-l', '--line', type=int, help='Detection line X coordinate')
     parser.add_argument('--max-disappeared', type=int, default=80, help='Maximum disappeared frames for tracking')
     parser.add_argument('--max-distance', type=int, default=100, help='Maximum distance for tracking')
     parser.add_argument('--no-gui', action='store_true', help='Disable GUI display')
     parser.add_argument('--no-log', action='store_true', help='Disable logging')
     parser.add_argument('-o', '--output', help='Output video file path')
+    parser.add_argument('--save-crossing-images', action='store_true', help='Save images when people cross the line')
+    parser.add_argument('--crossing-images-dir', default='crossing_images', help='Directory to save crossing images')
+    parser.add_argument('--csv-report', help='Output CSV report file path')
     
     args = parser.parse_args()
     
@@ -194,8 +201,8 @@ def main():
         return
     
     # Dockerコンテナ内のパスに変換
-    model_path = os.path.join('/app', args.model)
-    prototxt_path = os.path.join('/app', args.prototxt)
+    model_path =  args.model
+    prototxt_path =  args.prototxt
     
     # ファイルパスの存在確認
     if not os.path.exists(model_path):
@@ -224,12 +231,14 @@ def main():
         similarity_threshold=args.similarity,
         max_disappeared=args.max_disappeared,
         max_distance=args.max_distance,
-        enable_logging=not args.no_log
+        enable_logging=not args.no_log,
+        save_crossing_images=args.save_crossing_images,
+        crossing_images_dir=args.crossing_images_dir
     )
     
     # ビデオキャプチャの初期化
     if args.input:
-        input_path = os.path.join('/app', args.input)
+        input_path =  args.input
         if not os.path.exists(input_path):
             print(f"Error: Input video file not found: {input_path}")
             return
@@ -248,7 +257,7 @@ def main():
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        output_path = os.path.join('/app', args.output)
+        output_path =  args.output
         fourcc = cv2.VideoWriter_fourcc(*"MJPG")
         video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height), True)
         
@@ -327,6 +336,13 @@ def main():
         if app.logger:
             app.logger.print_unique_persons_summary(app.identifier.get_person_database())
             app.logger.close()
+        
+        # CSV レポートの保存
+        if args.csv_report:
+            app.tracker.save_crossing_report(args.csv_report)
+        elif args.save_crossing_images:
+            # 画像保存が有効な場合、デフォルトのCSVファイルを保存
+            app.tracker.save_crossing_report("crossing_report.csv")
 
 if __name__ == "__main__":
     main()

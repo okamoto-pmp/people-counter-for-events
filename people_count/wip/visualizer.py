@@ -70,20 +70,20 @@ class Visualizer:
         cv2.rectangle(output_frame, area[:2], area[2:], self.colors['area'], 2)
         return output_frame
     
-    def draw_detection_line(self, frame: np.ndarray, line_y: int) -> np.ndarray:
+    def draw_detection_line(self, frame: np.ndarray, line_x: int) -> np.ndarray:
         """
         検出ラインを描画
         
         Args:
             frame: 描画対象のフレーム
-            line_y: ラインのY座標
+            line_x: ラインのX座標
             
         Returns:
             描画後のフレーム
         """
         output_frame = frame.copy()
         height, width = frame.shape[:2]
-        cv2.line(output_frame, (0, line_y), (width, line_y), self.colors['line'], 2)
+        cv2.line(output_frame, (line_x, 0), (line_x, height), self.colors['line'], 2)
         return output_frame
     
     def draw_info(self, frame: np.ndarray, info: dict) -> np.ndarray:
